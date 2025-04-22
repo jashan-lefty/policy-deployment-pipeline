@@ -1,0 +1,55 @@
+name: OPA Policy Evaluation
+
+on:
+  push:
+    paths:
+      - "inputs/gcp/google_kms/google_kms_key_ring/**"
+      - "policies/gcp/google_kms/google_kms_key_ring/**"
+      - ".github/workflows/opa-policy-check.yml"
+
+jobs:
+  kms-key-ring-policy-check:
+    runs-on: ubuntu-latest
+
+    env:
+      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+    steps:
+      - name: ✅ Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: ⚖️ Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.4.6
+
+      - name: 🔢 Set up OPA
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa
+          sudo mv opa /usr/local/bin/
+
+      - name: 💼 Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+      - name: ⚖️ Run OPA Check for Key Ring Region
+        run: |
+          cd inputs/gcp/google_kms/google_kms_key_ring/region
+
+          echo ▶ Initializing Terraform...
+          terraform init -input=false
+
+          echo ▶ Planning...
+          terraform plan -out=plan
+
+          echo ▶ Converting plan to JSON...
+          terraform show -json plan > plan.json
+
+          echo ▶ Running OPA policy check...
+          opa eval \
+            --data ../../../../../policies/gcp \
+            --input plan.json \
+            --format pretty \
+            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message"
