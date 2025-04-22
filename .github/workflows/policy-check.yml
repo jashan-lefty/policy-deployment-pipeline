@@ -49,7 +49,7 @@ jobs:
 
           echo ▶ Running OPA policy check...
           opa eval \
-            --data ../../../../policies/gcp \
+            --data "${GITHUB_WORKSPACE}/policies/gcp" \
             --input plan.json \
             --format pretty \
             "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message"
