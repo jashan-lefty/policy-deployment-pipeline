@@ -1,4 +1,4 @@
-# c.tf file
+# c.tf 
 resource "google_kms_key_ring" "c" {
   name     = "secure-keyring"
   location = "us-central1"
