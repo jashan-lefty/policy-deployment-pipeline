@@ -6,6 +6,7 @@ on:
       - "inputs/gcp/google_kms/google_kms_key_ring/**"
       - "policies/gcp/google_kms/google_kms_key_ring/**"
       - ".github/workflows/opa-policy-check.yml"
+  workflow_dispatch:
 
 jobs:
   kms-key-ring-policy-check:
@@ -34,18 +35,21 @@ jobs:
         with:
           credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-      - name: ⚖️ Run OPA Check for Key Ring Region
+      - name: ⚙️ Terraform Plan and OPA Check
+        working-directory: inputs/gcp/google_kms/google_kms_key_ring/location
         run: |
-          cd inputs/gcp/google_kms/google_kms_key_ring/location
-
           echo ▶ Initializing Terraform...
           terraform init -input=false
 
-          echo ▶ Planning...
-          terraform plan -out=plan
+          echo ▶ Running Terraform Plan...
+          terraform plan -out=tfplan
 
-          echo ▶ Converting plan to JSON...
-          terraform show -json plan > plan.json
+          echo ▶ Converting Plan to JSON...
+          terraform show -json tfplan > plan.json
 
-          echo ▶ Running OPA policy check...
-          opa eval --data "${GITHUB_WORKSPACE}/policies/gcp" --input "plan.json" --format pretty "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message"
+          echo ▶ Running OPA Policy Check...
+          opa eval \
+            --data "${{ github.workspace }}/policies/gcp" \
+            --input "plan.json" \
+            --format pretty \
+            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message"
