@@ -36,7 +36,7 @@ jobs:
 
       - name: ⚖️ Run OPA Check for Key Ring Region
         run: |
-          cd inputs/gcp/google_kms/google_kms_key_ring/region
+          cd inputs/gcp/google_kms/google_kms_key_ring/location
 
           echo ▶ Initializing Terraform...
           terraform init -input=false
