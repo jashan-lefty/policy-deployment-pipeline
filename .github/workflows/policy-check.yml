@@ -47,7 +47,7 @@ jobs:
           terraform plan -out=plan.binary
 
           echo "▶ Converting plan to JSON..."
-          terraform show -json plan.binary > plan.json
+          terraform show -json plan.binary | grep -v "::debug::" | tail -n +2 > plan.json pwd
 
       - name: 🔍 Run OPA policy check and enforce compliance
         shell: bash
