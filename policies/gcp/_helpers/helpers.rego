@@ -1,90 +1,101 @@
 package terraform.gcp.helpers
 
+default all_resources := []
+
 # Match resource types
-resource_type_match(resource, resource_type) if{
+resource_type_match(resource, resource_type) if {
     resource.type == resource_type
 }
 
-# Get all resources of a type
-get_all_resources(resource_type) = resources if{
-    resources := [r | 
-        r := input.planned_values.root_module.resources[_]
-        resource_type_match(r, resource_type)
-    ]
+# Extract resources from resource_changes
+resource_from_changes = [r |
+    rc := input.resource_changes[_]
+    rc.type == resource_type
+    r := rc.change.after
+]
+
+# Extract resources from planned_values
+resource_from_planned = [r |
+    r := input.planned_values.root_module.resources[_]
+    r.type == resource_type
+]
+
+# Combine both sources
+get_all_resources(resource_type) = resources if {
+    a := resource_from_changes with resource_type as resource_type
+    b := resource_from_planned with resource_type as resource_type
+    resources := array.concat(a, b)
 }
 
 # Check if array contains an element
-array_contains(arr, elem) if{
+array_contains(arr, elem) if {
     some i
     arr[i] == elem
 }
 
 # Get non-compliant resources (array case)
-get_nc_resources(resource_type, attribute_path, allowed_values) = resources if{
+get_nc_resources(resource_type, attribute_path, allowed_values) = resources if {
     is_array(allowed_values)
+    all := get_all_resources(resource_type)
     resources := [r |
-        r := input.planned_values.root_module.resources[_]
-        resource_type_match(r, resource_type)
-        val := object.get(r.values, attribute_path, null)
+        r := all[_]
+        val := object.get(r, "values", r)[attribute_path]
         not array_contains(allowed_values, val)
     ]
 }
 
 # Get non-compliant resources (boolean case)
-get_nc_resources(resource_type, attribute_path, allowed_value) = resources if{
+get_nc_resources(resource_type, attribute_path, allowed_value) = resources if {
     is_boolean(allowed_value)
+    all := get_all_resources(resource_type)
     resources := [r |
-        r := input.planned_values.root_module.resources[_]
-        resource_type_match(r, resource_type)
-        val := object.get(r.values, attribute_path, null)
+        r := all[_]
+        val := object.get(r, "values", r)[attribute_path]
         val != allowed_value
     ]
 }
 
 # === Violation Message Logic === #
 
-# For array-based attribute path
-get_violations(resource_type, attribute_path, allowed_values, friendly_name) = violations if{
+get_violations(resource_type, attribute_path, allowed_values, friendly_name) = violations if {
     is_array(allowed_values)
     is_string(attribute_path)
     violations := [msg |
         r := get_nc_resources(resource_type, attribute_path, allowed_values)[_]
-        val := object.get(r.values, attribute_path, null)
-        resource_id := object.get(r.values, "name", r.name)
-        msg := sprintf("%s '%s' uses unapproved %s: '%s'", 
+        val := object.get(r, "values", r)[attribute_path]
+        resource_id := object.get(r, "values", r)["name"]
+        msg := sprintf("%s '%s' uses unapproved %s: '%s'",
             [friendly_name, resource_id, replace(attribute_path, "_", " "), val])
     ]
 }
 
-# For boolean-based attribute path
-get_violations(resource_type, attribute_path, allowed_values, friendly_name) = violations if{
+get_violations(resource_type, attribute_path, allowed_values, friendly_name) = violations if {
     is_boolean(allowed_values)
     is_string(attribute_path)
     violations := [msg |
         r := get_nc_resources(resource_type, attribute_path, allowed_values)[_]
-        val := object.get(r.values, attribute_path, null)
-        resource_id := object.get(r.values, "name", r.name)
-        msg := sprintf("%s '%s' has '%s' set to '%s'. It should be set to '%s'", 
-            [friendly_name, resource_id, replace(attribute_path, "_", " "), val])
+        val := object.get(r, "values", r)[attribute_path]
+        resource_id := object.get(r, "values", r)["name"]
+        msg := sprintf("%s '%s' has '%s' set to '%s'. It should be set to '%s'",
+            [friendly_name, resource_id, replace(attribute_path, "_", " "), val, allowed_values])
     ]
 }
 
-# Overloaded: For array-based attribute path as it is 
-get_violations(resource_type, attribute_path, allowed_values, friendly_name) = violations if{
+get_violations(resource_type, attribute_path, allowed_values, friendly_name) = violations if {
     is_array(allowed_values)
     is_array(attribute_path)
     violations := [msg |
         r := get_nc_resources(resource_type, attribute_path, allowed_values)[_]
-        val := object.get(r.values, attribute_path, null)
-        resource_id := object.get(r.values, "name", r.name)
-        msg := sprintf("%s '%s' has '%s' set to '%s'. It should be set to '%s'", 
-            [friendly_name, resource_id, replace(attribute_path, "_", " "), val])
+        val := object.get(r, "values", r)[attribute_path]
+        resource_id := object.get(r, "values", r)["name"]
+        msg := sprintf("%s '%s' has '%s' set to '%s'. It should be set to '%s'",
+            [friendly_name, resource_id, replace(attribute_path, "_", " "), val, allowed_values])
     ]
 }
 
 # === Summary Message === #
 
-get_summary(resource_type, attribute_path, allowed_values, friendly_name) = summary if{
+get_summary(resource_type, attribute_path, allowed_values, friendly_name) = summary if {
     total := count(get_all_resources(resource_type))
     violations := get_violations(resource_type, attribute_path, allowed_values, friendly_name)
     summary := {
@@ -117,17 +128,3 @@ get_multi_summary(resource_type, compliance_conditions, friendly_resource_name) 
         )
     }
 }
-
-# Checks if attribute contains blacklisted keyword
-get_blacklist_violations(resource_type, attr, blacklist, friendly_name) = msgs if {
-  msgs := [
-    sprintf("%s '%s' has blacklisted value in '%s': '%s'", 
-            [friendly_name, r.values.name, attr, val]) |
-    r := input.planned_values.root_module.resources[_]
-    r.type == resource_type
-    val := object.get(r.values, attr, "")
-    keyword := blacklist[_]
-    contains(val, keyword)
-  ]
-}
-
