@@ -49,16 +49,6 @@ jobs:
           echo "▶ Converting plan to JSON..."
           terraform show -json plan.binary > plan.json
 
-          echo "✅ Preview of generated plan.json (first 10 lines):"
-          head -n 10 plan.json
-
-          echo "✅ Validating JSON format..."
-          if ! jq type < plan.json > /dev/null 2>&1; then
-            echo "::error:: plan.json is not valid JSON."
-            exit 1
-          fi
-
-
       - name: 🔍 Run OPA policy check and enforce compliance
         shell: bash
         run: |
