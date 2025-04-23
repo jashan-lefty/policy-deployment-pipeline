@@ -44,10 +44,10 @@ jobs:
           terraform init -input=false
 
           echo "▶ Planning..."
-          terraform plan -out=plan
+          terraform plan -out=plan.binary
 
           echo "▶ Converting plan to JSON..."
-          terraform show -json plan > plan.json
+          terraform show -json plan.binary > plan.json
 
           echo "✅ Preview of generated plan.json (first 10 lines):"
           head -n 10 plan.json
