@@ -16,33 +16,26 @@ jobs:
       GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
     steps:
-      - name: "✅ Checkout Repository"
+      - name: ✅ Checkout Repository
         uses: actions/checkout@v3
 
-      - name: "📁 Debug: Show workspace files"
-        run: |
-          echo "📂 Workspace contents:"
-          find . -type f
-
-      - name: "⚖️ Set up Terraform"
+      - name: ⚖️ Set up Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.4.6
 
-      - name: "🔢 Set up OPA"
+      - name: 🔢 Set up OPA
         run: |
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
           chmod +x opa
           sudo mv opa /usr/local/bin/
-          echo "✅ OPA version:"
-          opa version
 
-      - name: "💼 Authenticate to GCP"
+      - name: 💼 Authenticate to GCP
         uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-      - name: "🗺️ Terraform Init & Plan & Show JSON"
+      - name: 🗺️ Terraform Init & Plan & Show JSON
         id: tf_plan
         run: |
           cd inputs/gcp/google_kms/google_kms_key_ring/location
@@ -53,32 +46,13 @@ jobs:
           echo "▶ Planning..."
           terraform plan -out=plan
 
-          echo "📄 Human-readable plan preview:"
-          terraform show plan | head -n 50
-
           echo "▶ Converting plan to JSON..."
           terraform show -json plan > plan.json
 
-          echo "⏳ Validating JSON output..."
-          head -n 5 plan.json
-          if ! jq type < plan.json > /dev/null 2>&1; then
-            echo "::error:: ❌ plan.json is not valid JSON!"
-            exit 1
-          fi
-
-          echo "📊 JSON structure (resource_changes preview):"
-          jq '.resource_changes | map({type: .type, name: .name, actions: .change.actions})' plan.json
-
-      - name: "🧪 Debug: Check Rego syntax"
-        run: |
-          echo "🔍 Checking Rego policies:"
-          opa check policies/gcp || echo "::warning:: Rego syntax check failed."
-          opa test policies/gcp -v || true  # Skip test failure blocking if not defined
-
-      - name: "🔍 Run OPA policy check and enforce compliance"
+      - name: 🔍 Run OPA policy check and enforce compliance
         shell: bash
         run: |
-          echo "▶ Running OPA Evaluation..."
+          # sift out the summary message
           result=$(opa eval \
             --data "${GITHUB_WORKSPACE}/policies/gcp" \
             --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
@@ -87,21 +61,12 @@ jobs:
 
           echo "$result"
 
+          # Look for "Non-compliant ... : 0/" → success; otherwise fail
           if echo "$result" | grep -qE "Non-compliant .*: 0/"; then
             echo "✅ All resources compliant."
           else
             echo "::error:: 🚨 Found non-compliant resources!"
+            # print just the violation lines for clarity
             echo "$result" | tail -n +3
             exit 1
           fi
-
-      - name: "🧵 Debug: Run OPA with trace (on failure)"
-        if: failure()
-        run: |
-          echo "📋 Full OPA trace:"
-          opa eval \
-            --data "${GITHUB_WORKSPACE}/policies/gcp" \
-            --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
-            --format pretty \
-            --explain notes \
-            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location"
