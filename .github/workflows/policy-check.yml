@@ -35,21 +35,38 @@ jobs:
         with:
           credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-      - name: ⚙️ Terraform Plan and OPA Check
-        working-directory: inputs/gcp/google_kms/google_kms_key_ring/location
+      - name: 🗺️ Terraform Init & Plan & Show JSON
+        id: tf_plan
         run: |
-          echo ▶ Initializing Terraform...
+          cd inputs/gcp/google_kms/google_kms_key_ring/location
+
+          echo "▶ Initializing Terraform..."
           terraform init -input=false
 
-          echo ▶ Running Terraform Plan...
-          terraform plan -out=tfplan
+          echo "▶ Planning..."
+          terraform plan -out=plan
 
-          echo ▶ Converting Plan to JSON...
-          terraform show -json tfplan > plan.json
+          echo "▶ Converting plan to JSON..."
+          terraform show -json plan > plan.json
 
-          echo ▶ Running OPA Policy Check...
-          opa eval \
-            --data "${{ github.workspace }}/policies/gcp" \
-            --input "plan.json" \
+      - name: 🔍 Run OPA policy check and enforce compliance
+        shell: bash
+        run: |
+          # sift out the summary message
+          result=$(opa eval \
+            --data "${GITHUB_WORKSPACE}/policies/gcp" \
+            --input inputs/gcp/google_kms/google_kms_key_ring/location/plan.json \
             --format pretty \
-            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message"
+            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message")
+
+          echo "$result"
+
+          # Look for "Non-compliant ... : 0/" → success; otherwise fail
+          if echo "$result" | grep -qE "Non-compliant .*: 0/"; then
+            echo "✅ All resources compliant."
+          else
+            echo "::error:: 🚨 Found non-compliant resources!"
+            # print just the violation lines for clarity
+            echo "$result" | tail -n +3
+            exit 1
+          fi
