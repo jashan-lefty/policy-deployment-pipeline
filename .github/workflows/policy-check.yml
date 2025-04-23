@@ -18,6 +18,17 @@ jobs:
     steps:
       - name: ✅ Checkout Repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Get full history for better debugging
+
+      - name: 🔍 Debug: Show workspace structure
+        run: |
+          echo "=== Workspace Structure ==="
+          ls -R
+          echo "=== Policy Files ==="
+          find policies -type f -name "*.rego" -exec ls -la {} \;
+          echo "=== Input Files ==="
+          find inputs -type f -name "*.json" -exec ls -la {} \;
 
       - name: ⚖️ Set up Terraform
         uses: hashicorp/setup-terraform@v2
@@ -29,6 +40,7 @@ jobs:
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
           chmod +x opa
           sudo mv opa /usr/local/bin/
+          opa version
 
       - name: 💼 Authenticate to GCP
         uses: google-github-actions/auth@v1
@@ -44,15 +56,56 @@ jobs:
           terraform init -input=false
 
           echo "▶ Planning..."
-          terraform plan -out=plan
-
+          terraform plan -out=plan -no-color
+          
+          echo "=== Plan File Size ==="
+          ls -lh plan
+          
           echo "▶ Converting plan to JSON..."
           terraform show -json plan > plan.json
+          
+          echo "=== Plan.json Content Sample ==="
+          jq '.resource_changes[] | {type: .type, name: .name, change: .change.actions}' plan.json
+          echo "=== Total Resources ==="
+          jq '.resource_changes | length' plan.json
+          
+          echo "=== Saving plan.json as artifact ==="
+          mkdir -p /tmp/opa-debug
+          cp plan.json /tmp/opa-debug/
+          
+        continue-on-error: true  # Continue even if plan fails
 
-      - name: 🔍 Run OPA policy check and enforce compliance
+      - name: 📦 Upload Plan for Debugging
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: terraform-plan
+          path: /tmp/opa-debug/plan.json
+
+      - name: 🔍 Debug: Validate Rego Policy Syntax
+        run: |
+          echo "=== Policy Syntax Check ==="
+          opa check "${GITHUB_WORKSPACE}/policies/gcp"
+          
+          echo "=== Policy Test Results ==="
+          opa test "${GITHUB_WORKSPACE}/policies/gcp" -v
+
+      - name: 🔍 Run OPA with Full Debugging
+        id: opa_check
         shell: bash
         run: |
-          # sift out the summary message
+          echo "=== Running OPA Evaluation ==="
+          
+          # First run with full output
+          echo "▶ Full OPA Evaluation Output:"
+          opa eval \
+            --data "${GITHUB_WORKSPACE}/policies/gcp" \
+            --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
+            --format pretty \
+            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location"
+            
+          # Then capture just the summary
+          echo "▶ Summary Output:"
           result=$(opa eval \
             --data "${GITHUB_WORKSPACE}/policies/gcp" \
             --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
@@ -60,6 +113,9 @@ jobs:
             "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message")
 
           echo "$result"
+          
+          # Save result for subsequent steps
+          echo "result=${result}" >> $GITHUB_OUTPUT
 
           # Look for "Non-compliant ... : 0/" → success; otherwise fail
           if echo "$result" | grep -qE "Non-compliant .*: 0/"; then
@@ -70,3 +126,14 @@ jobs:
             echo "$result" | tail -n +3
             exit 1
           fi
+
+      - name: 🔍 Debug: Show OPA Evaluation Trace
+        if: failure()
+        run: |
+          echo "=== OPA Evaluation Trace ==="
+          opa eval \
+            --data "${GITHUB_WORKSPACE}/policies/gcp" \
+            --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
+            --format pretty \
+            --explain notes \
+            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location"
