@@ -49,12 +49,6 @@ jobs:
           echo "▶ Converting plan to JSON..."
           terraform show -json plan > plan.json
 
-      - name: "📦 Upload plan.json artifact"
-        uses: actions/upload-artifact@v3
-        with:
-          name: terraform-plan-json
-          path: inputs/gcp/google_kms/google_kms_key_ring/location/plan.json
-
       - name: 🔍 Run OPA policy check and enforce compliance
         shell: bash
         run: |
