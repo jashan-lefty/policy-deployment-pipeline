@@ -8,20 +8,29 @@ friendly_name := "KMS Key Ring"
 
 # === Utility to normalize resource extraction ===
 resources := [r |
-  rc := input.resource_changes[_]
+  rc := input.resource_changes[i]
   rc.type == resource_type
   r := rc.change.after
 ]
 
 # === Violating resources ===
 violations := [msg |
-  r := resources[_]
+  r := resources[i]
   val := object.get(r, attribute, null)
   not val == null
-  not val == allowed_locations[_]
+
+  # SAFELY check that val is NOT in allowed_locations
+  not allowed(val)
+
   name := object.get(r, "name", "unnamed")
   msg := sprintf("%s '%s' uses unapproved %s: '%s'", [friendly_name, name, attribute, val])
 ]
+
+# Safe membership test: returns true if val is in allowed_locations
+allowed(val) if {
+  some i
+  allowed_locations[i] == val
+}
 
 # === Summary message for output ===
 summary := {
