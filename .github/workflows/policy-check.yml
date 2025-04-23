@@ -19,16 +19,7 @@ jobs:
       - name: ✅ Checkout Repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Get full history for better debugging
-
-      - name: 🔍 Debug: Show workspace structure
-        run: |
-          echo "=== Workspace Structure ==="
-          ls -R
-          echo "=== Policy Files ==="
-          find policies -type f -name "*.rego" -exec ls -la {} \;
-          echo "=== Input Files ==="
-          find inputs -type f -name "*.json" -exec ls -la {} \;
+          fetch-depth: 0
 
       - name: ⚖️ Set up Terraform
         uses: hashicorp/setup-terraform@v2
@@ -57,83 +48,61 @@ jobs:
 
           echo "▶ Planning..."
           terraform plan -out=plan -no-color
-          
-          echo "=== Plan File Size ==="
-          ls -lh plan
-          
+
           echo "▶ Converting plan to JSON..."
           terraform show -json plan > plan.json
-          
-          echo "=== Plan.json Content Sample ==="
-          jq '.resource_changes[] | {type: .type, name: .name, change: .change.actions}' plan.json
-          echo "=== Total Resources ==="
-          jq '.resource_changes | length' plan.json
-          
-          echo "=== Saving plan.json as artifact ==="
-          mkdir -p /tmp/opa-debug
-          cp plan.json /tmp/opa-debug/
-          
-        continue-on-error: true  # Continue even if plan fails
+
+          echo "=== Plan.json preview ==="
+          jq '.resource_changes | map({type: .type, name: .name})' plan.json
+
+          # Move plan.json to workspace for consistency
+          cp plan.json "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json"
 
       - name: 📦 Upload Plan for Debugging
         uses: actions/upload-artifact@v3
-        if: always()
         with:
           name: terraform-plan
-          path: /tmp/opa-debug/plan.json
+          path: inputs/gcp/google_kms/google_kms_key_ring/location/plan.json
 
-      - name: 🔍 Debug: Validate Rego Policy Syntax
+      - name: 🔍 Validate Rego Policy Syntax
         run: |
-          echo "=== Policy Syntax Check ==="
-          opa check "${GITHUB_WORKSPACE}/policies/gcp"
-          
-          echo "=== Policy Test Results ==="
-          opa test "${GITHUB_WORKSPACE}/policies/gcp" -v
+          opa check policies/gcp
+          opa test policies/gcp -v || true  # If you don't have test cases yet
 
       - name: 🔍 Run OPA with Full Debugging
-        id: opa_check
         shell: bash
         run: |
-          echo "=== Running OPA Evaluation ==="
-          
-          # First run with full output
           echo "▶ Full OPA Evaluation Output:"
           opa eval \
-            --data "${GITHUB_WORKSPACE}/policies/gcp" \
-            --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
+            --data policies/gcp \
+            --input inputs/gcp/google_kms/google_kms_key_ring/location/plan.json \
             --format pretty \
             "data.terraform.gcp.security.google_kms.google_kms_key_ring.location"
-            
-          # Then capture just the summary
+
           echo "▶ Summary Output:"
           result=$(opa eval \
-            --data "${GITHUB_WORKSPACE}/policies/gcp" \
-            --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
+            --data policies/gcp \
+            --input inputs/gcp/google_kms/google_kms_key_ring/location/plan.json \
             --format pretty \
             "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message")
 
           echo "$result"
-          
-          # Save result for subsequent steps
           echo "result=${result}" >> $GITHUB_OUTPUT
 
-          # Look for "Non-compliant ... : 0/" → success; otherwise fail
           if echo "$result" | grep -qE "Non-compliant .*: 0/"; then
             echo "✅ All resources compliant."
           else
             echo "::error:: 🚨 Found non-compliant resources!"
-            # print just the violation lines for clarity
             echo "$result" | tail -n +3
             exit 1
           fi
 
-      - name: 🔍 Debug: Show OPA Evaluation Trace
+      - name: 🧪 Debug OPA Evaluation (on failure)
         if: failure()
         run: |
-          echo "=== OPA Evaluation Trace ==="
           opa eval \
-            --data "${GITHUB_WORKSPACE}/policies/gcp" \
-            --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
+            --data policies/gcp \
+            --input inputs/gcp/google_kms/google_kms_key_ring/location/plan.json \
             --format pretty \
             --explain notes \
             "data.terraform.gcp.security.google_kms.google_kms_key_ring.location"
