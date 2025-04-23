@@ -55,7 +55,7 @@ jobs:
           # sift out the summary message
           result=$(opa eval \
             --data "${GITHUB_WORKSPACE}/policies/gcp" \
-            --input inputs/gcp/google_kms/google_kms_key_ring/location/plan.json \
+            --input "plan.json" \
             --format pretty \
             "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message")
 
