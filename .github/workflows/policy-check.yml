@@ -61,7 +61,7 @@ jobs:
 
           echo "⏳ Validating JSON output..."
           head -n 5 plan.json
-          if ! jq type plan.json > /dev/null 2>&1; then
+          if ! jq type < plan.json > /dev/null 2>&1; then
             echo "::error:: ❌ plan.json is not valid JSON!"
             exit 1
           fi
