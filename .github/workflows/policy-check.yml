@@ -18,8 +18,6 @@ jobs:
     steps:
       - name: ✅ Checkout Repository
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
       - name: ⚖️ Set up Terraform
         uses: hashicorp/setup-terraform@v2
@@ -31,7 +29,6 @@ jobs:
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
           chmod +x opa
           sudo mv opa /usr/local/bin/
-          opa version
 
       - name: 💼 Authenticate to GCP
         uses: google-github-actions/auth@v1
@@ -47,62 +44,29 @@ jobs:
           terraform init -input=false
 
           echo "▶ Planning..."
-          terraform plan -out=plan -no-color
+          terraform plan -out=plan
 
           echo "▶ Converting plan to JSON..."
           terraform show -json plan > plan.json
 
-          echo "=== Plan.json preview ==="
-          jq '.resource_changes | map({type: .type, name: .name})' plan.json
-
-          # Move plan.json to workspace for consistency
-          cp plan.json "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json"
-
-      - name: 📦 Upload Plan for Debugging
-        uses: actions/upload-artifact@v3
-        with:
-          name: terraform-plan
-          path: inputs/gcp/google_kms/google_kms_key_ring/location/plan.json
-
-      - name: 🔍 Validate Rego Policy Syntax
-        run: |
-          opa check policies/gcp
-          opa test policies/gcp -v || true  # If you don't have test cases yet
-
-      - name: 🔍 Run OPA with Full Debugging
+      - name: 🔍 Run OPA policy check and enforce compliance
         shell: bash
         run: |
-          echo "▶ Full OPA Evaluation Output:"
-          opa eval \
-            --data policies/gcp \
-            --input inputs/gcp/google_kms/google_kms_key_ring/location/plan.json \
-            --format pretty \
-            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location"
-
-          echo "▶ Summary Output:"
+          # sift out the summary message
           result=$(opa eval \
-            --data policies/gcp \
-            --input inputs/gcp/google_kms/google_kms_key_ring/location/plan.json \
+            --data "${GITHUB_WORKSPACE}/policies/gcp" \
+            --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
             --format pretty \
             "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message")
 
           echo "$result"
-          echo "result=${result}" >> $GITHUB_OUTPUT
 
+          # Look for "Non-compliant ... : 0/" → success; otherwise fail
           if echo "$result" | grep -qE "Non-compliant .*: 0/"; then
             echo "✅ All resources compliant."
           else
             echo "::error:: 🚨 Found non-compliant resources!"
+            # print just the violation lines for clarity
             echo "$result" | tail -n +3
             exit 1
           fi
-
-      - name: 🧪 Debug OPA Evaluation (on failure)
-        if: failure()
-        run: |
-          opa eval \
-            --data policies/gcp \
-            --input inputs/gcp/google_kms/google_kms_key_ring/location/plan.json \
-            --format pretty \
-            --explain notes \
-            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location"
