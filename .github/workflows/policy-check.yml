@@ -21,7 +21,7 @@ jobs:
 
       - name: "📁 Debug: Show workspace files"
         run: |
-          echo "📂 Files in workspace:"
+          echo "📂 Workspace contents:"
           find . -type f
 
       - name: "⚖️ Set up Terraform"
@@ -53,26 +53,32 @@ jobs:
           echo "▶ Planning..."
           terraform plan -out=plan
 
-          echo "📄 Plan file contents (text preview):"
+          echo "📄 Human-readable plan preview:"
           terraform show plan | head -n 50
 
           echo "▶ Converting plan to JSON..."
           terraform show -json plan > plan.json
 
-          echo "📄 JSON structure (resource_changes preview):"
-          jq '.resource_changes | map({type: .type, name: .name, actions: .change.actions})' plan.json
+          echo "⏳ Validating JSON output..."
+          head -n 5 plan.json
+          if ! jq type plan.json > /dev/null 2>&1; then
+            echo "::error:: ❌ plan.json is not valid JSON!"
+            exit 1
+          fi
 
-          echo "📦 Plan.json saved at: $(pwd)/plan.json"
+          echo "📊 JSON structure (resource_changes preview):"
+          jq '.resource_changes | map({type: .type, name: .name, actions: .change.actions})' plan.json
 
       - name: "🧪 Debug: Check Rego syntax"
         run: |
-          echo "🔍 Checking Rego policies syntax:"
+          echo "🔍 Checking Rego policies:"
           opa check policies/gcp || echo "::warning:: Rego syntax check failed."
+          opa test policies/gcp -v || true  # Skip test failure blocking if not defined
 
       - name: "🔍 Run OPA policy check and enforce compliance"
         shell: bash
         run: |
-          echo "▶ Running OPA Evaluation:"
+          echo "▶ Running OPA Evaluation..."
           result=$(opa eval \
             --data "${GITHUB_WORKSPACE}/policies/gcp" \
             --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
@@ -81,7 +87,6 @@ jobs:
 
           echo "$result"
 
-          echo "▶ Checking compliance summary..."
           if echo "$result" | grep -qE "Non-compliant .*: 0/"; then
             echo "✅ All resources compliant."
           else
