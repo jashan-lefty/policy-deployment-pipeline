@@ -16,27 +16,26 @@ jobs:
       GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
     steps:
-      - name: "✅ Checkout Repository"
+      - name: ✅ Checkout Repository
         uses: actions/checkout@v3
 
-      - name: "⚖️ Set up Terraform"
+      - name: ⚖️ Set up Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.4.6
 
-      - name: "🔢 Set up OPA"
+      - name: 🔢 Set up OPA
         run: |
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
           chmod +x opa
           sudo mv opa /usr/local/bin/
-          opa version
 
-      - name: "💼 Authenticate to GCP"
+      - name: 💼 Authenticate to GCP
         uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-      - name: "🗺️ Terraform Init & Plan & Show JSON"
+      - name: 🗺️ Terraform Init & Plan & Show JSON
         id: tf_plan
         run: |
           cd inputs/gcp/google_kms/google_kms_key_ring/location
@@ -56,11 +55,10 @@ jobs:
           name: terraform-plan-json
           path: inputs/gcp/google_kms/google_kms_key_ring/location/plan.json
 
-      - name: "🔍 Run OPA policy check and enforce compliance"
+      - name: 🔍 Run OPA policy check and enforce compliance
         shell: bash
         run: |
-          echo "▶ Running OPA evaluation..."
-
+          # sift out the summary message
           result=$(opa eval \
             --data "${GITHUB_WORKSPACE}/policies/gcp" \
             --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
@@ -69,10 +67,12 @@ jobs:
 
           echo "$result"
 
+          # Look for "Non-compliant ... : 0/" → success; otherwise fail
           if echo "$result" | grep -qE "Non-compliant .*: 0/"; then
             echo "✅ All resources compliant."
           else
             echo "::error:: 🚨 Found non-compliant resources!"
+            # print just the violation lines for clarity
             echo "$result" | tail -n +3
             exit 1
           fi
