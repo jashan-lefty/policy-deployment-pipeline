@@ -57,7 +57,7 @@ jobs:
             --data "${GITHUB_WORKSPACE}/policies/gcp" \
             --input "${GITHUB_WORKSPACE}/inputs/gcp/google_kms/google_kms_key_ring/location/plan.json" \
             --format pretty \
-            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.summary.message")
+            "data.terraform.gcp.security.google_kms.google_kms_key_ring.location.message")
 
           echo "$result"
 
